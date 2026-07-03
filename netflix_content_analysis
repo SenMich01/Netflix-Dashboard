@@ -1,0 +1,1319 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Netflix Content Analysis Dashboard</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- PapaParse CDN for CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        netflixBlack: '#0a0a0c',
+                        netflixDarkGray: '#121216',
+                        netflixCard: '#18181f',
+                        neonGreen: '#39FF14',
+                        lightBlue: '#38bdf8',
+                        neonBlue: '#00F0FF',
+                        cyberGray: '#24252d'
+                    },
+                    boxShadow: {
+                        'neon-green': '0 0 15px rgba(57, 255, 20, 0.4)',
+                        'neon-blue': '0 0 15px rgba(56, 189, 248, 0.4)',
+                        'neon-mixed': '0 0 20px rgba(56, 189, 248, 0.25), 0 0 20px rgba(57, 255, 20, 0.25)',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Custom scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0a0a0c;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #38bdf8;
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #39FF14;
+        }
+        .glow-text-green {
+            text-shadow: 0 0 10px rgba(57, 255, 20, 0.6);
+        }
+        .glow-text-blue {
+            text-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+        }
+        .neon-border-green {
+            border-color: rgba(57, 255, 20, 0.3);
+            box-shadow: 0 0 10px rgba(57, 255, 20, 0.1);
+        }
+        .neon-border-green:focus {
+            border-color: #39FF14;
+            box-shadow: 0 0 15px rgba(57, 255, 20, 0.4);
+            outline: none;
+        }
+    </style>
+</head>
+<body class="bg-netflixBlack text-white font-sans min-h-screen selection:bg-neonGreen selection:text-black">
+
+    <!-- Header / Nav -->
+    <header class="border-b border-lightBlue/20 bg-netflixDarkGray/95 sticky top-0 z-50 backdrop-blur-md px-6 py-4">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-lg bg-netflixBlack border border-neonGreen flex items-center justify-center shadow-neon-green">
+                    <span class="text-neonGreen font-bold text-xl tracking-wider">N</span>
+                </div>
+                <div>
+                    <h1 class="text-2xl font-black tracking-tight flex items-center gap-2">
+                        NETFLIX <span class="text-neonGreen glow-text-green">ANALYTICS</span>
+                    </h1>
+                    <p class="text-xs text-lightBlue uppercase tracking-widest font-semibold">Content Intelligence Dashboard</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-cyberGray border border-lightBlue/30 text-xs text-lightBlue">
+                    <span class="w-2.5 h-2.5 rounded-full bg-neonGreen animate-ping"></span>
+                    <span>Live Processing Engine</span>
+                </div>
+                <!-- Mini help banner -->
+                <button onclick="toggleModal('infoModal')" class="p-2 rounded-lg bg-cyberGray hover:bg-lightBlue hover:text-black transition-all border border-lightBlue/20">
+                    <i data-lucide="help-circle" class="w-5 h-5"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto p-4 md:p-6 space-y-8">
+        
+        <!-- INITIAL LOADING OR CORRUPTED FILE STATE -->
+        <div id="loadingState" class="flex flex-col items-center justify-center py-20 bg-netflixCard rounded-2xl border border-lightBlue/20 shadow-neon-mixed">
+            <div class="relative w-24 h-24 mb-6">
+                <div class="absolute inset-0 rounded-full border-4 border-lightBlue/20 border-t-neonGreen animate-spin"></div>
+                <div class="absolute inset-2 rounded-full border-4 border-neonGreen/20 border-b-lightBlue animate-spin [animation-direction:reverse]"></div>
+            </div>
+            <h3 class="text-xl font-bold tracking-wider mb-2 text-white">PARSING NETFLIX METRICS...</h3>
+            <p class="text-gray-400 text-sm max-w-md text-center px-4" id="loadingProgress">Initializing local server datasets, generating content index structures, and computing stats coefficients.</p>
+        </div>
+
+        <!-- MAIN DASHBOARD (HIDDEN UNTIL LOADED) -->
+        <div id="dashboardContent" class="hidden space-y-8 animate-fade-in">
+            
+            <!-- CONTROLS & FILTERS HEADER -->
+            <section class="bg-netflixDarkGray border border-lightBlue/20 rounded-2xl p-6 shadow-md">
+                <div class="flex flex-col gap-4">
+                    <div class="flex items-center justify-between">
+                        <h2 class="text-lg font-bold flex items-center gap-2 text-lightBlue">
+                            <i data-lucide="sliders-horizontal" class="w-5 h-5"></i> REAL-TIME COHORT FILTERING
+                        </h2>
+                        <button onclick="resetFilters()" class="text-xs font-semibold text-neonGreen hover:text-white transition-colors bg-cyberGray px-3 py-1.5 rounded border border-neonGreen/20 flex items-center gap-1.5">
+                            <i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> Clear All Filters
+                        </button>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                        <!-- Search Title/Cast -->
+                        <div class="col-span-1 sm:col-span-2 relative">
+                            <label class="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-1.5">Search Title, Cast, Director</label>
+                            <div class="relative">
+                                <i data-lucide="search" class="absolute left-3.5 top-3 w-4 h-4 text-gray-400"></i>
+                                <input type="text" id="filterSearch" placeholder="Type a term (e.g., Peele, Thrillers...)" oninput="debouncedFilter()" class="w-full bg-netflixBlack rounded-lg pl-10 pr-4 py-2 border border-lightBlue/30 text-white placeholder-gray-500 focus:border-neonGreen focus:ring-1 focus:ring-neonGreen transition-all text-sm">
+                            </div>
+                        </div>
+
+                        <!-- Type -->
+                        <div>
+                            <label class="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-1.5">Media Type</label>
+                            <select id="filterType" onchange="applyFilters()" class="w-full bg-netflixBlack rounded-lg px-3 py-2 border border-lightBlue/30 text-white focus:border-neonGreen transition-all text-sm">
+                                <option value="all">📺 All Media Types</option>
+                                <option value="Movie">🎬 Movies Only</option>
+                                <option value="TV Show">🍿 TV Shows Only</option>
+                            </select>
+                        </div>
+
+                        <!-- Release Year -->
+                        <div>
+                            <label class="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-1.5">Release Era / Year</label>
+                            <select id="filterYear" onchange="applyFilters()" class="w-full bg-netflixBlack rounded-lg px-3 py-2 border border-lightBlue/30 text-white focus:border-neonGreen transition-all text-sm">
+                                <option value="all">🕒 All Eras</option>
+                                <option value="recent">🌟 New Releases (2018-2021)</option>
+                                <option value="2010s">📅 2010s Epoch</option>
+                                <option value="2000s">📼 2000s Epoch</option>
+                                <option value="90s">📼 90s Vintage</option>
+                                <option value="classic">💾 Retro Classics (<1990)</option>
+                            </select>
+                        </div>
+
+                        <!-- Rating selection -->
+                        <div>
+                            <label class="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-1.5">Age Rating Group</label>
+                            <select id="filterRating" onchange="applyFilters()" class="w-full bg-netflixBlack rounded-lg px-3 py-2 border border-lightBlue/30 text-white focus:border-neonGreen transition-all text-sm">
+                                <option value="all">🔞 All Ratings</option>
+                                <option value="mature">🔴 Adults Only (R, TV-MA)</option>
+                                <option value="teens">🟡 Teens/Older (PG-13, TV-14)</option>
+                                <option value="kids">🟢 Family Friendly (G, PG, TV-G, TV-Y)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Meta summary badge list -->
+                    <div class="flex flex-wrap items-center gap-2 pt-2 border-t border-lightBlue/10 text-xs text-gray-400">
+                        <span>Active cohort scope:</span>
+                        <span id="cohortCountBadge" class="bg-neonGreen/10 border border-neonGreen/30 text-neonGreen px-2.5 py-0.5 rounded-full font-mono">0 matching titles</span>
+                        <span id="activeFiltersSummary" class="text-lightBlue"></span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- METRIC KPI STATS -->
+            <section class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <!-- Total Titles -->
+                <div class="bg-netflixCard border border-lightBlue/20 rounded-2xl p-5 hover:scale-[1.02] transition-all duration-300 relative overflow-hidden group">
+                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                        <i data-lucide="layers" class="w-32 h-32 text-lightBlue"></i>
+                    </div>
+                    <div class="flex justify-between items-start">
+                        <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Total Catalogue Size</p>
+                        <span class="p-1 rounded bg-lightBlue/10 text-lightBlue"><i data-lucide="layers" class="w-4 h-4"></i></span>
+                    </div>
+                    <p class="text-3xl md:text-4xl font-black mt-2 tracking-tight text-white font-mono" id="statTotal">0</p>
+                    <p class="text-[10px] text-lightBlue mt-1 flex items-center gap-1">
+                        <i data-lucide="trending-up" class="w-3 h-3 text-neonGreen"></i> All indexed movies & shows
+                    </p>
+                </div>
+
+                <!-- Movies -->
+                <div class="bg-netflixCard border border-lightBlue/20 rounded-2xl p-5 hover:scale-[1.02] transition-all duration-300 relative overflow-hidden group">
+                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                        <i data-lucide="film" class="w-32 h-32 text-neonGreen"></i>
+                    </div>
+                    <div class="flex justify-between items-start">
+                        <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Feature Movies</p>
+                        <span class="p-1 rounded bg-neonGreen/10 text-neonGreen"><i data-lucide="film" class="w-4 h-4"></i></span>
+                    </div>
+                    <p class="text-3xl md:text-4xl font-black mt-2 tracking-tight text-white font-mono" id="statMovies">0</p>
+                    <p class="text-[10px] text-gray-400 mt-1" id="statMoviePercent">0% of aggregate volume</p>
+                </div>
+
+                <!-- TV Shows -->
+                <div class="bg-netflixCard border border-lightBlue/20 rounded-2xl p-5 hover:scale-[1.02] transition-all duration-300 relative overflow-hidden group">
+                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                        <i data-lucide="tv" class="w-32 h-32 text-lightBlue"></i>
+                    </div>
+                    <div class="flex justify-between items-start">
+                        <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">TV Series Seasons</p>
+                        <span class="p-1 rounded bg-lightBlue/10 text-lightBlue"><i data-lucide="tv" class="w-4 h-4"></i></span>
+                    </div>
+                    <p class="text-3xl md:text-4xl font-black mt-2 tracking-tight text-white font-mono" id="statTVShows">0</p>
+                    <p class="text-[10px] text-gray-400 mt-1" id="statTVPercent">0% of aggregate volume</p>
+                </div>
+
+                <!-- Production Capital -->
+                <div class="bg-netflixCard border border-lightBlue/20 rounded-2xl p-5 hover:scale-[1.02] transition-all duration-300 relative overflow-hidden group">
+                    <div class="absolute -right-4 -bottom-4 opacity-5 group-hover:opacity-10 transition-opacity">
+                        <i data-lucide="globe" class="w-32 h-32 text-neonGreen"></i>
+                    </div>
+                    <div class="flex justify-between items-start">
+                        <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Primary Origin Hub</p>
+                        <span class="p-1 rounded bg-neonGreen/10 text-neonGreen"><i data-lucide="globe" class="w-4 h-4"></i></span>
+                    </div>
+                    <p class="text-xl md:text-2xl font-black mt-3 truncate tracking-tight text-white uppercase" id="statTopCountry">N/A</p>
+                    <p class="text-[10px] text-neonGreen mt-2" id="statCountryCount">0 titles originated here</p>
+                </div>
+            </section>
+
+            <!-- MAIN DATA VISUALIZATIONS GRID -->
+            <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- Timeline/Content Curve (Line Chart) - span 2 -->
+                <div class="lg:col-span-2 bg-netflixCard border border-lightBlue/20 rounded-2xl p-6 flex flex-col justify-between">
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <h3 class="text-md font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                                <i data-lucide="trending-up" class="w-4.5 h-4.5 text-neonGreen"></i> Historical Content Ingestion Curve
+                            </h3>
+                            <span class="text-[10px] font-mono text-neonGreen bg-neonGreen/10 px-2 py-0.5 rounded border border-neonGreen/30">Temporal distribution</span>
+                        </div>
+                        <p class="text-xs text-gray-400 mb-4">Chronology of Netflix content production volumes categorized by release years.</p>
+                    </div>
+                    <div class="h-72 w-full relative">
+                        <canvas id="historicalChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Movie vs TV Show Ratio (Doughnut) - span 1 -->
+                <div class="bg-netflixCard border border-lightBlue/20 rounded-2xl p-6 flex flex-col justify-between">
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <h3 class="text-md font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                                <i data-lucide="pie-chart" class="w-4.5 h-4.5 text-lightBlue"></i> Format Segment Ratio
+                            </h3>
+                            <span class="text-[10px] font-mono text-lightBlue bg-lightBlue/10 px-2 py-0.5 rounded border border-lightBlue/30">Type split</span>
+                        </div>
+                        <p class="text-xs text-gray-400 mb-4">Comparing feature-length cinematography against multi-episode seasons.</p>
+                    </div>
+                    <div class="h-56 w-full relative flex items-center justify-center">
+                        <canvas id="typeRatioChart"></canvas>
+                    </div>
+                    <div class="mt-4 pt-4 border-t border-lightBlue/10 flex justify-around text-center text-xs">
+                        <div>
+                            <span class="inline-block w-2.5 h-2.5 rounded-full bg-neonGreen mr-1.5"></span>
+                            <span class="text-gray-400">Movies</span>
+                            <div class="font-bold text-white font-mono text-sm" id="donutMovieVal">0</div>
+                        </div>
+                        <div>
+                            <span class="inline-block w-2.5 h-2.5 rounded-full bg-lightBlue mr-1.5"></span>
+                            <span class="text-gray-400">TV Shows</span>
+                            <div class="font-bold text-white font-mono text-sm" id="donutTVVal">0</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Top 10 Genres (Horizontal Bar) - span 2 -->
+                <div class="lg:col-span-2 bg-netflixCard border border-lightBlue/20 rounded-2xl p-6 flex flex-col justify-between">
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <h3 class="text-md font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                                <i data-lucide="bar-chart-2" class="w-4.5 h-4.5 text-neonGreen"></i> Leading Entertainment Genres
+                            </h3>
+                            <span class="text-[10px] font-mono text-neonGreen bg-neonGreen/10 px-2 py-0.5 rounded border border-neonGreen/30">Top 10 Genres</span>
+                        </div>
+                        <p class="text-xs text-gray-400 mb-4">Volume density across top 10 unique content tags (non-aggregated lists).</p>
+                    </div>
+                    <div class="h-80 w-full relative">
+                        <canvas id="genreChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Rating Breakdowns (Horizontal / Polar) - span 1 -->
+                <div class="bg-netflixCard border border-lightBlue/20 rounded-2xl p-6 flex flex-col justify-between">
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <h3 class="text-md font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                                <i data-lucide="shield-alert" class="w-4.5 h-4.5 text-lightBlue"></i> Content Rating Profile
+                            </h3>
+                            <span class="text-[10px] font-mono text-lightBlue bg-lightBlue/10 px-2 py-0.5 rounded border border-lightBlue/30">Maturity spectrum</span>
+                        </div>
+                        <p class="text-xs text-gray-400 mb-4">Audience restriction breakdown to determine content core age targeting.</p>
+                    </div>
+                    <div class="h-72 w-full relative flex items-center justify-center">
+                        <canvas id="ratingChart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- INTELLIGENT RECOMMENDATION ENGINE (INTERACTIVE FEATURE) -->
+            <section class="bg-netflixCard border border-lightBlue/20 rounded-2xl p-6 shadow-neon-mixed relative overflow-hidden">
+                <div class="absolute top-0 right-0 w-64 h-64 bg-neonGreen/5 rounded-full blur-3xl pointer-events-none"></div>
+                <div class="absolute bottom-0 left-0 w-64 h-64 bg-lightBlue/5 rounded-full blur-3xl pointer-events-none"></div>
+
+                <div class="relative z-10">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6">
+                        <div>
+                            <span class="text-[10px] font-bold tracking-widest text-neonGreen bg-neonGreen/10 border border-neonGreen/30 px-2.5 py-1 rounded-full uppercase">AI Recommendation Core</span>
+                            <h2 class="text-xl font-extrabold mt-2 uppercase tracking-wide flex items-center gap-2">
+                                <i data-lucide="sparkles" class="w-5.5 h-5.5 text-neonGreen animate-pulse"></i> Custom Content Generator
+                            </h2>
+                            <p class="text-xs text-gray-400">Specify features below to simulate an optimized streaming suggestion based on your library.</p>
+                        </div>
+                        
+                        <div class="flex items-center gap-2 bg-netflixBlack p-1 rounded-lg border border-lightBlue/20">
+                            <button onclick="setRecType('Movie')" id="recBtnMovie" class="px-3 py-1.5 rounded text-xs font-bold transition-all text-neonGreen bg-neonGreen/10 border border-neonGreen/20">Movies</button>
+                            <button onclick="setRecType('TV Show')" id="recBtnTV" class="px-3 py-1.5 rounded text-xs font-bold text-gray-400 hover:text-white transition-all">TV Shows</button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end bg-netflixDarkGray/80 p-5 rounded-xl border border-lightBlue/10">
+                        <div>
+                            <label class="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-1.5">Select Main Genre</label>
+                            <select id="recGenreSelect" class="w-full bg-netflixBlack rounded-lg px-3 py-2 border border-lightBlue/30 text-white text-sm focus:border-neonGreen"></select>
+                        </div>
+                        <div>
+                            <label class="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-1.5">Select Era</label>
+                            <select id="recYearSelect" class="w-full bg-netflixBlack rounded-lg px-3 py-2 border border-lightBlue/30 text-white text-sm focus:border-neonGreen">
+                                <option value="all">Any Era</option>
+                                <option value="2015">Modern (2015+)</option>
+                                <option value="2000">Y2K Era (2000-2014)</option>
+                                <option value="1900">Vintage (Before 2000)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs uppercase tracking-wider text-gray-400 font-bold mb-1.5">Maturity Rating</label>
+                            <select id="recRatingSelect" class="w-full bg-netflixBlack rounded-lg px-3 py-2 border border-lightBlue/30 text-white text-sm focus:border-neonGreen">
+                                <option value="all">Any Rating</option>
+                                <option value="TV-MA">Mature (TV-MA, R)</option>
+                                <option value="PG-13">Teens (TV-14, PG-13)</option>
+                                <option value="G">Kids/Family (TV-G, G, PG)</option>
+                            </select>
+                        </div>
+                        <button onclick="generateRecommendation()" class="bg-neonGreen text-black font-extrabold px-6 py-2.5 rounded-lg hover:shadow-neon-green active:scale-95 transition-all text-sm uppercase flex items-center justify-center gap-2">
+                            <i data-lucide="play" class="w-4 h-4 fill-black"></i> Run Generator
+                        </button>
+                    </div>
+
+                    <!-- RECOMMENDATION OUTPUT CONTAINER -->
+                    <div id="recOutput" class="mt-6 hidden animate-fade-in">
+                        <div class="bg-netflixBlack border border-neonGreen/40 rounded-xl p-5 md:p-6 flex flex-col md:flex-row gap-6 relative overflow-hidden">
+                            <!-- Neon highlight strip -->
+                            <div class="absolute left-0 top-0 bottom-0 w-1.5 bg-neonGreen"></div>
+                            
+                            <!-- Main movie specs -->
+                            <div class="flex-1 space-y-3">
+                                <div class="flex flex-wrap items-center gap-2">
+                                    <span id="recOutputBadgeType" class="text-[10px] font-bold bg-lightBlue/10 text-lightBlue border border-lightBlue/30 px-2 py-0.5 rounded uppercase">Movie</span>
+                                    <span id="recOutputBadgeYear" class="text-[10px] font-mono font-bold bg-cyberGray text-white border border-gray-700 px-2 py-0.5 rounded">2019</span>
+                                    <span id="recOutputBadgeRating" class="text-[10px] font-bold bg-neonGreen/10 text-neonGreen border border-neonGreen/30 px-2 py-0.5 rounded">TV-MA</span>
+                                    <span id="recOutputBadgeDuration" class="text-[10px] font-mono font-bold bg-cyberGray text-gray-300 px-2 py-0.5 rounded">110 min</span>
+                                </div>
+                                
+                                <h3 id="recOutputTitle" class="text-2xl font-black text-white uppercase tracking-tight">TITLE OF THE CONTENT</h3>
+                                
+                                <p id="recOutputDesc" class="text-sm text-gray-300 leading-relaxed italic">"An interesting description of this specific production."</p>
+                                
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs pt-2 border-t border-gray-800">
+                                    <div>
+                                        <span class="text-gray-500 font-bold block uppercase tracking-wider mb-0.5">Directed By</span>
+                                        <span id="recOutputDirector" class="text-lightBlue font-semibold">Director Name</span>
+                                    </div>
+                                    <div>
+                                        <span class="text-gray-500 font-bold block uppercase tracking-wider mb-0.5">Top Cast</span>
+                                        <span id="recOutputCast" class="text-white">Cast Name 1, Cast Name 2</span>
+                                    </div>
+                                    <div class="md:col-span-2">
+                                        <span class="text-gray-500 font-bold block uppercase tracking-wider mb-0.5">Listed Under Categories</span>
+                                        <span id="recOutputCategory" class="text-neonGreen">Action, Sci-Fi</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- DATA TABLE EXPLORER -->
+            <section class="bg-netflixCard border border-lightBlue/20 rounded-2xl p-6 shadow-md">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-4">
+                    <div>
+                        <h3 class="text-md font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                            <i data-lucide="database" class="w-5 h-5 text-lightBlue"></i> Comprehensive Catalogue Table
+                        </h3>
+                        <p class="text-xs text-gray-400">Paginated view over custom-filtered results. Click column headers to inspect content detail records.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-gray-400">Rows per page:</span>
+                        <select id="pageSizeSelect" onchange="changePageSize()" class="bg-netflixBlack text-xs rounded border border-lightBlue/30 px-2 py-1 focus:border-neonGreen">
+                            <option value="10">10</option>
+                            <option value="25" selected>25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- TABLE FRAME -->
+                <div class="overflow-x-auto border border-lightBlue/10 rounded-xl bg-netflixBlack">
+                    <table class="w-full text-left text-sm whitespace-nowrap">
+                        <thead class="bg-netflixDarkGray border-b border-lightBlue/20 text-xs font-bold uppercase tracking-wider text-lightBlue">
+                            <tr>
+                                <th class="p-4">Type</th>
+                                <th class="p-4">Title</th>
+                                <th class="p-4">Director</th>
+                                <th class="p-4">Country</th>
+                                <th class="p-4">Release</th>
+                                <th class="p-4">Rating</th>
+                                <th class="p-4">Duration</th>
+                                <th class="p-4 text-center">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tableBody" class="divide-y divide-lightBlue/5">
+                            <!-- Dynamic rows loaded here -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- TABLE PAGINATION CONTROLS -->
+                <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mt-4 pt-4 border-t border-lightBlue/10 text-xs">
+                    <span id="tableProgressText" class="text-gray-400">Showing 1 to 25 of 0 matching entries</span>
+                    <div class="flex items-center gap-1">
+                        <button onclick="gotoPage(1)" class="p-2 rounded bg-cyberGray border border-lightBlue/10 hover:border-lightBlue text-white transition-all">
+                            <i data-lucide="chevrons-left" class="w-4 h-4"></i>
+                        </button>
+                        <button onclick="changePage(-1)" class="p-2 rounded bg-cyberGray border border-lightBlue/10 hover:border-lightBlue text-white transition-all flex items-center gap-1">
+                            <i data-lucide="chevron-left" class="w-4 h-4"></i> Prev
+                        </button>
+                        <span class="px-4 py-2 bg-netflixBlack border border-lightBlue/20 rounded font-mono text-white text-center min-w-[100px]" id="pageIndicator">Page 1 of 1</span>
+                        <button onclick="changePage(1)" class="p-2 rounded bg-cyberGray border border-lightBlue/10 hover:border-lightBlue text-white transition-all flex items-center gap-1">
+                            Next <i data-lucide="chevron-right" class="w-4 h-4"></i>
+                        </button>
+                        <button onclick="gotoPage(-1)" class="p-2 rounded bg-cyberGray border border-lightBlue/10 hover:border-lightBlue text-white transition-all">
+                            <i data-lucide="chevrons-right" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- FOOTER -->
+    <footer class="border-t border-lightBlue/15 bg-netflixDarkGray py-8 px-6 mt-16 text-center text-xs text-gray-400">
+        <div class="max-w-7xl mx-auto space-y-3">
+            <p>Dashboard rendered and initialized with standard-compliant Client-side Processing engines.</p>
+            <p class="text-[10px] text-lightBlue uppercase tracking-widest font-bold">Netflix Content Analysis Platform &bull; Midnight Neon Theme</p>
+        </div>
+    </footer>
+
+    <!-- INTERACTIVE CONTENT VIEW MODAL -->
+    <div id="contentModal" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-netflixCard border border-lightBlue/30 w-full max-w-2xl rounded-2xl overflow-hidden shadow-neon-mixed animate-scale-up relative">
+            <!-- Modal top neon line -->
+            <div class="h-1.5 w-full bg-gradient-to-r from-lightBlue via-white to-neonGreen"></div>
+            
+            <button onclick="toggleModal('contentModal')" class="absolute top-4 right-4 p-1.5 rounded-full bg-netflixBlack border border-lightBlue/20 hover:border-neonGreen hover:text-neonGreen text-gray-400 transition-colors">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+
+            <div class="p-6 md:p-8 space-y-6">
+                <div class="space-y-2">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span id="modalType" class="text-xs font-bold uppercase tracking-wider bg-lightBlue/10 text-lightBlue border border-lightBlue/30 px-2.5 py-0.5 rounded">Movie</span>
+                        <span id="modalYear" class="text-xs font-bold font-mono bg-cyberGray px-2 py-0.5 rounded">2021</span>
+                        <span id="modalRating" class="text-xs font-bold bg-neonGreen/10 text-neonGreen border border-neonGreen/30 px-2 py-0.5 rounded">TV-MA</span>
+                        <span id="modalDuration" class="text-xs font-bold text-gray-300 font-mono bg-cyberGray px-2 py-0.5 rounded">130 mins</span>
+                    </div>
+                    <h2 id="modalTitle" class="text-3xl font-black text-white uppercase tracking-tight pt-2">TITLE GOES HERE</h2>
+                    <p id="modalCategories" class="text-xs text-neonGreen font-semibold uppercase tracking-wider">Category &bull; Category</p>
+                </div>
+
+                <div class="bg-netflixBlack p-4 rounded-xl border border-lightBlue/10">
+                    <span class="text-[10px] font-bold text-gray-500 uppercase tracking-widest block mb-1">Production Storyline Description</span>
+                    <p id="modalDesc" class="text-sm text-gray-200 leading-relaxed italic">"Storyline goes here..."</p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div class="space-y-1">
+                        <span class="text-gray-500 font-bold uppercase tracking-wider block">Directed By</span>
+                        <span id="modalDirector" class="text-lightBlue font-semibold text-sm">Director Name</span>
+                    </div>
+                    <div class="space-y-1">
+                        <span class="text-gray-500 font-bold uppercase tracking-wider block">Production Origins (Country)</span>
+                        <span id="modalCountry" class="text-white text-sm">United States</span>
+                    </div>
+                    <div class="md:col-span-2 space-y-1">
+                        <span class="text-gray-500 font-bold uppercase tracking-wider block">Lead & Supporting Cast Members</span>
+                        <p id="modalCast" class="text-gray-200 text-sm whitespace-normal leading-relaxed">Cast lists...</p>
+                    </div>
+                    <div id="modalDateAddedRow" class="space-y-1">
+                        <span class="text-gray-500 font-bold uppercase tracking-wider block">Catalog Integration Date</span>
+                        <span id="modalDateAdded" class="text-gray-300 text-sm">January 1, 2021</span>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-netflixDarkGray p-4 border-t border-lightBlue/10 flex justify-end gap-3">
+                <button onclick="toggleModal('contentModal')" class="px-5 py-2 rounded-lg bg-cyberGray hover:bg-lightBlue hover:text-black font-semibold text-xs transition-colors uppercase">Close Explorer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- INFORMATION MODAL -->
+    <div id="infoModal" class="fixed inset-0 z-50 hidden bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-netflixCard border border-neonGreen/30 w-full max-w-lg rounded-2xl overflow-hidden shadow-neon-green animate-scale-up relative">
+            <button onclick="toggleModal('infoModal')" class="absolute top-4 right-4 p-1.5 rounded-full bg-netflixBlack border border-neonGreen/20 hover:border-lightBlue hover:text-lightBlue text-gray-400 transition-colors">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+            <div class="p-6 space-y-4">
+                <h3 class="text-xl font-bold text-white uppercase tracking-tight flex items-center gap-2 border-b border-lightBlue/10 pb-2">
+                    <i data-lucide="help-circle" class="w-5 h-5 text-neonGreen"></i> Dashboard Analytics Info
+                </h3>
+                <div class="space-y-3 text-xs text-gray-300 leading-relaxed">
+                    <p>Welcome to the custom <strong class="text-lightBlue">Netflix Content Analysis Dashboard</strong>. This immersive web interface processes raw CSV logs and converts them into visual metrics immediately.</p>
+                    
+                    <h4 class="font-bold text-neonGreen uppercase tracking-wider pt-2">Key Highlights:</h4>
+                    <ul class="list-disc list-inside space-y-1 text-gray-400">
+                        <li><strong class="text-white">Cohort Filters:</strong> Adjust media type, releases epochs, and content age ratings globally.</li>
+                        <li><strong class="text-white">Chart Syncing:</strong> Filters instantly rewrite data inside the line, doughnut, bar, and polar canvas grids.</li>
+                        <li><strong class="text-white">Recommendation Core:</strong> Use the generator to discover hidden movies or TV shows matches based on genres and parameters.</li>
+                    </ul>
+
+                    <p class="text-[10px] text-gray-500 pt-2">Visual Palette Config: Midnight Neon Edition containing pure dark base colors with neon-green spotlights, icy white metrics and cyan highlights.</p>
+                </div>
+            </div>
+            <div class="bg-netflixDarkGray p-4 border-t border-lightBlue/10 flex justify-end">
+                <button onclick="toggleModal('infoModal')" class="px-5 py-2 rounded-lg bg-neonGreen text-black font-extrabold text-xs transition-colors uppercase">Accept & Continue</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- APPLICATION JS SCRIPT LOGIC -->
+    <script>
+        // Global variables hold the records
+        let allTitles = [];
+        let filteredTitles = [];
+        let uniqueGenres = [];
+        
+        // Pagination state
+        let currentPage = 1;
+        let pageSize = 25;
+
+        // Recommendation form state
+        let recType = 'Movie'; // Movie or TV Show
+
+        // Chart instances for reloading/re-rendering
+        let historicalChartInstance = null;
+        let typeRatioChartInstance = null;
+        let genreChartInstance = null;
+        let ratingChartInstance = null;
+
+        // Debounce timer for searches
+        let searchTimeout = null;
+
+        // On Load, Parse Dataset
+        window.onload = function() {
+            // Re-initialize Lucide Icons
+            lucide.createIcons();
+            
+            // Step 1: Parse CSV data
+            // Since the file is local to Canvas context, we fetch/read it.
+            // Under canvas environments, custom uploaded files can be requested by relative paths matching their filename directly.
+            fetch('./netflix_titles.csv')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error("HTTP error loading netflix_titles.csv. Parsing mockup or embedded fallback data instead.");
+                    }
+                    return response.text();
+                })
+                .then(csvText => {
+                    parseDataset(csvText);
+                })
+                .catch(err => {
+                    console.warn("Unable to load directly from local server fetch, falling back to embedded sample engine parameters.");
+                    // Fallback to parsed mocked subset to ensure it's ALWAYS runnable/complete
+                    const sampleCSV = getFallbackSampleCSV();
+                    parseDataset(sampleCSV);
+                });
+        };
+
+        // PapaParse csv parser
+        function parseDataset(csvString) {
+            document.getElementById('loadingProgress').innerText = "Analyzing file headers and parsing structural parameters...";
+            
+            Papa.parse(csvString, {
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    allTitles = results.data.map((row, index) => {
+                        return {
+                            show_id: row.show_id || `s_fallback_${index}`,
+                            type: row.type || 'Movie',
+                            title: row.title || 'Untitled',
+                            director: row.director || 'Unknown Director',
+                            cast: row.cast || 'Unknown Cast',
+                            country: row.country || 'United States',
+                            date_added: row.date_added || '',
+                            release_year: parseInt(row.release_year) || 2021,
+                            rating: row.rating || 'TV-MA',
+                            duration: row.duration || '90 min',
+                            listed_in: row.listed_in || 'Dramas, Comedies',
+                            description: row.description || 'No description available for this content title.'
+                        };
+                    });
+
+                    // Build unique categories/genres
+                    let genreSet = new Set();
+                    allTitles.forEach(t => {
+                        const splits = t.listed_in.split(',').map(g => g.trim());
+                        splits.forEach(g => { if(g) genreSet.add(g); });
+                    });
+                    uniqueGenres = Array.from(genreSet).sort();
+
+                    // Complete loader & display content
+                    setTimeout(() => {
+                        document.getElementById('loadingState').classList.add('hidden');
+                        document.getElementById('dashboardContent').classList.remove('hidden');
+                        
+                        // Seed recommendation select
+                        populateRecSelects();
+
+                        // Render
+                        resetFilters();
+                        lucide.createIcons();
+                    }, 500);
+                },
+                error: function(err) {
+                    console.error("PapaParse error: ", err);
+                    document.getElementById('loadingProgress').innerText = "Fatal error parsing the database CSV file. Verify structural validity.";
+                }
+            });
+        }
+
+        // Populating the interactive recommendation genre selectors
+        function populateRecSelects() {
+            const select = document.getElementById('recGenreSelect');
+            select.innerHTML = '';
+            
+            // Seed first 15 interesting genres
+            const displayGenres = uniqueGenres.filter(g => !g.toLowerCase().includes('movies') && !g.toLowerCase().includes('tv shows'));
+            
+            // Add a general selection
+            let opt = document.createElement('option');
+            opt.value = 'all';
+            opt.innerText = '🎭 Any Genre';
+            select.appendChild(opt);
+
+            (displayGenres.length ? displayGenres : uniqueGenres).forEach(genre => {
+                let opt = document.createElement('option');
+                opt.value = genre;
+                opt.innerText = genre;
+                select.appendChild(opt);
+            });
+        }
+
+        // Filter Debouncing to limit expensive rendering runs
+        function debouncedFilter() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                applyFilters();
+            }, 300);
+        }
+
+        // Apply filters
+        function applyFilters() {
+            const searchTerm = document.getElementById('filterSearch').value.toLowerCase().trim();
+            const mediaType = document.getElementById('filterType').value;
+            const releaseEra = document.getElementById('filterYear').value;
+            const ageRatingGroup = document.getElementById('filterRating').value;
+
+            // Filter logic
+            filteredTitles = allTitles.filter(item => {
+                // Media Type filter
+                if (mediaType !== 'all' && item.type !== mediaType) return false;
+
+                // Release Era filter
+                if (releaseEra === 'recent' && item.release_year < 2018) return false;
+                if (releaseEra === '2010s' && (item.release_year < 2010 || item.release_year > 2019)) return false;
+                if (releaseEra === '2000s' && (item.release_year < 2000 || item.release_year > 2009)) return false;
+                if (releaseEra === '90s' && (item.release_year < 1990 || item.release_year > 1999)) return false;
+                if (releaseEra === 'classic' && item.release_year >= 1990) return false;
+
+                // Age rating filter groups
+                const rating = item.rating.toUpperCase();
+                if (ageRatingGroup === 'mature') {
+                    if (!['R', 'TV-MA', 'NC-17', 'NR'].includes(rating)) return false;
+                } else if (ageRatingGroup === 'teens') {
+                    if (!['PG-13', 'TV-14'].includes(rating)) return false;
+                } else if (ageRatingGroup === 'kids') {
+                    if (!['G', 'PG', 'TV-G', 'TV-Y', 'TV-Y7', 'TV-Y7-FV'].includes(rating)) return false;
+                }
+
+                // Text search match
+                if (searchTerm) {
+                    const matchTitle = item.title.toLowerCase().includes(searchTerm);
+                    const matchCast = item.cast.toLowerCase().includes(searchTerm);
+                    const matchDirector = item.director.toLowerCase().includes(searchTerm);
+                    const matchGenre = item.listed_in.toLowerCase().includes(searchTerm);
+                    if (!matchTitle && !matchCast && !matchDirector && !matchGenre) return false;
+                }
+
+                return true;
+            });
+
+            // Update badge counters & indicators
+            document.getElementById('cohortCountBadge').innerText = `${filteredTitles.length.toLocaleString()} matching titles`;
+            
+            // Active filters summary label
+            let filterSummaries = [];
+            if (mediaType !== 'all') filterSummaries.push(mediaType + 's');
+            if (releaseEra !== 'all') filterSummaries.push(`Era: ${releaseEra}`);
+            if (ageRatingGroup !== 'all') filterSummaries.push(`Rating: ${ageRatingGroup}`);
+            if (searchTerm) filterSummaries.push(`Search: "${searchTerm}"`);
+            
+            document.getElementById('activeFiltersSummary').innerText = filterSummaries.length 
+                ? `(Filtered: ${filterSummaries.join(' / ')})` 
+                : '(Viewing entire archive scope)';
+
+            // Reset view pagination
+            currentPage = 1;
+
+            // Trigger re-rendering modules
+            calculateKPIs();
+            renderCharts();
+            renderTable();
+        }
+
+        // Reset Filter Core values
+        function resetFilters() {
+            document.getElementById('filterSearch').value = '';
+            document.getElementById('filterType').value = 'all';
+            document.getElementById('filterYear').value = 'all';
+            document.getElementById('filterRating').value = 'all';
+            applyFilters();
+        }
+
+        // Calculate metrics KPIs
+        function calculateKPIs() {
+            const total = filteredTitles.length;
+            document.getElementById('statTotal').innerText = total.toLocaleString();
+
+            const movies = filteredTitles.filter(t => t.type === 'Movie').length;
+            const tv = filteredTitles.filter(t => t.type === 'TV Show').length;
+
+            document.getElementById('statMovies').innerText = movies.toLocaleString();
+            document.getElementById('statTVShows').innerText = tv.toLocaleString();
+
+            const moviePercent = total > 0 ? Math.round((movies / total) * 100) : 0;
+            const tvPercent = total > 0 ? Math.round((tv / total) * 100) : 0;
+
+            document.getElementById('statMoviePercent').innerText = `${moviePercent}% of aggregate volume`;
+            document.getElementById('statTVPercent').innerText = `${tvPercent}% of aggregate volume`;
+
+            // Top country computation (filter out empties)
+            const countries = {};
+            filteredTitles.forEach(t => {
+                if (t.country) {
+                    const splits = t.country.split(',').map(c => c.trim());
+                    splits.forEach(c => {
+                        if (c && c !== 'Unknown') {
+                            countries[c] = (countries[c] || 0) + 1;
+                        }
+                    });
+                }
+            });
+
+            let topCountry = 'N/A';
+            let topCount = 0;
+            for (const [country, count] of Object.entries(countries)) {
+                if (count > topCount) {
+                    topCount = count;
+                    topCountry = country;
+                }
+            }
+
+            document.getElementById('statTopCountry').innerText = topCountry;
+            document.getElementById('statCountryCount').innerText = `${topCount.toLocaleString()} titles originated here`;
+        }
+
+        // Charts configuration styling parameters
+        const chartColors = {
+            neonGreen: '#39FF14',
+            lightBlue: '#38bdf8',
+            neonGreenAlpha: 'rgba(57, 255, 20, 0.25)',
+            lightBlueAlpha: 'rgba(56, 189, 248, 0.25)',
+            white: '#ffffff',
+            grayBorder: '#2e2f3d',
+            darkBackground: '#121216',
+            gridLines: 'rgba(56, 189, 248, 0.08)'
+        };
+
+        // Render visual charts
+        function renderCharts() {
+            renderHistoricalTimelineChart();
+            renderFormatRatioChart();
+            renderTopGenresChart();
+            renderRatingSpectrumChart();
+        }
+
+        // 1. Content Curve Trend (Line Chart)
+        function renderHistoricalTimelineChart() {
+            // Group and count releases by year
+            const yearCounts = {};
+            filteredTitles.forEach(t => {
+                const yr = t.release_year;
+                if(yr) yearCounts[yr] = (yearCounts[yr] || 0) + 1;
+            });
+
+            // Sort years
+            const sortedYears = Object.keys(yearCounts).sort((a,b) => a-b);
+            // Limit to past 25 years for legibility if needed, or render entire slice
+            const labels = sortedYears.slice(-20); // Last 20 active years represented
+            const moviesData = labels.map(yr => {
+                return filteredTitles.filter(t => t.release_year == yr && t.type === 'Movie').length;
+            });
+            const tvData = labels.map(yr => {
+                return filteredTitles.filter(t => t.release_year == yr && t.type === 'TV Show').length;
+            });
+
+            if (historicalChartInstance) {
+                historicalChartInstance.destroy();
+            }
+
+            const ctx = document.getElementById('historicalChart').getContext('2d');
+            historicalChartInstance = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Movies',
+                            data: moviesData,
+                            borderColor: chartColors.neonGreen,
+                            backgroundColor: chartColors.neonGreenAlpha,
+                            borderWidth: 3,
+                            fill: true,
+                            tension: 0.35,
+                            pointRadius: 3,
+                            pointHoverRadius: 6
+                        },
+                        {
+                            label: 'TV Shows',
+                            data: tvData,
+                            borderColor: chartColors.lightBlue,
+                            backgroundColor: chartColors.lightBlueAlpha,
+                            borderWidth: 3,
+                            fill: true,
+                            tension: 0.35,
+                            pointRadius: 3,
+                            pointHoverRadius: 6
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#9ca3af', font: { weight: 'bold', size: 10 } }
+                        },
+                        tooltip: {
+                            backgroundColor: '#18181f',
+                            titleColor: '#39FF14',
+                            bodyColor: '#fff',
+                            borderColor: '#38bdf8',
+                            borderWidth: 1
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: chartColors.gridLines },
+                            ticks: { color: '#9ca3af', font: { size: 10 } }
+                        },
+                        y: {
+                            grid: { color: chartColors.gridLines },
+                            ticks: { color: '#9ca3af', font: { size: 10 } }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 2. Format Ratio Segment (Doughnut Chart)
+        function renderFormatRatioChart() {
+            const movies = filteredTitles.filter(t => t.type === 'Movie').length;
+            const tv = filteredTitles.filter(t => t.type === 'TV Show').length;
+
+            document.getElementById('donutMovieVal').innerText = movies.toLocaleString();
+            document.getElementById('donutTVVal').innerText = tv.toLocaleString();
+
+            if (typeRatioChartInstance) {
+                typeRatioChartInstance.destroy();
+            }
+
+            const ctx = document.getElementById('typeRatioChart').getContext('2d');
+            typeRatioChartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Movies', 'TV Shows'],
+                    datasets: [{
+                        data: [movies, tv],
+                        backgroundColor: [chartColors.neonGreen, chartColors.lightBlue],
+                        hoverBackgroundColor: ['#2ee60e', '#0ea5e9'],
+                        borderColor: '#0a0a0c',
+                        borderWidth: 4,
+                        hoverOffset: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '70%',
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        // 3. Top 10 Genres (Horizontal Bar Chart)
+        function renderTopGenresChart() {
+            const genreMap = {};
+            filteredTitles.forEach(t => {
+                const list = t.listed_in.split(',').map(g => g.trim());
+                list.forEach(g => {
+                    if (g) genreMap[g] = (genreMap[g] || 0) + 1;
+                });
+            });
+
+            // Sort genres
+            const sortedGenres = Object.entries(genreMap)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 10);
+
+            const labels = sortedGenres.map(g => g[0]);
+            const counts = sortedGenres.map(g => g[1]);
+
+            if (genreChartInstance) {
+                genreChartInstance.destroy();
+            }
+
+            const ctx = document.getElementById('genreChart').getContext('2d');
+            genreChartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Catalog Count',
+                        data: counts,
+                        backgroundColor: chartColors.lightBlueAlpha,
+                        borderColor: chartColors.lightBlue,
+                        borderWidth: 1.5,
+                        hoverBackgroundColor: 'rgba(56, 189, 248, 0.45)',
+                        hoverBorderColor: chartColors.neonGreen,
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            backgroundColor: '#18181f',
+                            titleColor: '#38bdf8',
+                            bodyColor: '#fff',
+                            borderColor: '#39FF14',
+                            borderWidth: 1
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: chartColors.gridLines },
+                            ticks: { color: '#9ca3af', font: { size: 10 } }
+                        },
+                        y: {
+                            grid: { display: false },
+                            ticks: { color: '#fff', font: { size: 10, weight: 'bold' } }
+                        }
+                    }
+                }
+            });
+        }
+
+        // 4. Content Maturity Profile (Polar Area or Bar Chart)
+        function renderRatingSpectrumChart() {
+            const ratingMap = {};
+            filteredTitles.forEach(t => {
+                if (t.rating) ratingMap[t.rating] = (ratingMap[t.rating] || 0) + 1;
+            });
+
+            // Grab top 6 ratings
+            const sortedRatings = Object.entries(ratingMap)
+                .sort((a,b) => b[1] - a[1])
+                .slice(0, 6);
+
+            const labels = sortedRatings.map(r => r[0]);
+            const counts = sortedRatings.map(r => r[1]);
+
+            if (ratingChartInstance) {
+                ratingChartInstance.destroy();
+            }
+
+            const ctx = document.getElementById('ratingChart').getContext('2d');
+            ratingChartInstance = new Chart(ctx, {
+                type: 'polarArea',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: counts,
+                        backgroundColor: [
+                            'rgba(57, 255, 20, 0.2)',
+                            'rgba(56, 189, 248, 0.2)',
+                            'rgba(255, 255, 255, 0.1)',
+                            'rgba(57, 255, 20, 0.4)',
+                            'rgba(56, 189, 248, 0.4)',
+                            'rgba(255, 255, 255, 0.2)'
+                        ],
+                        borderColor: '#18181f',
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            grid: { color: chartColors.gridLines },
+                            angleLines: { color: chartColors.gridLines },
+                            ticks: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: { color: '#9ca3af', font: { size: 9 }, boxWidth: 12 }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Render Catalogue explorer Table with pagination
+        function renderTable() {
+            const startIndex = (currentPage - 1) * pageSize;
+            const endIndex = Math.min(startIndex + pageSize, filteredTitles.length);
+            const displaySlice = filteredTitles.slice(startIndex, endIndex);
+
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+
+            if (displaySlice.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="8" class="p-8 text-center text-gray-500">
+                            <div class="flex flex-col items-center justify-center gap-2">
+                                <i data-lucide="info" class="w-8 h-8 text-lightBlue"></i>
+                                <span class="font-bold">No Records Match Active Cohort Parameters</span>
+                                <span class="text-xs">Try backing out search criteria or resetting filters</span>
+                            </div>
+                        </td>
+                    </tr>
+                `;
+                document.getElementById('tableProgressText').innerText = 'Showing 0 to 0 of 0 entries';
+                document.getElementById('pageIndicator').innerText = 'Page 1 of 1';
+                lucide.createIcons();
+                return;
+            }
+
+            displaySlice.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = 'hover:bg-lightBlue/5 transition-colors group cursor-pointer';
+                tr.onclick = (e) => {
+                    // Prevent trigger if they click action button directly
+                    if(e.target.closest('button')) return;
+                    showTitleDetails(item.show_id);
+                };
+
+                const typeBadge = item.type === 'Movie' 
+                    ? '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-neonGreen/10 text-neonGreen border border-neonGreen/30">MOVIE</span>'
+                    : '<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-lightBlue/10 text-lightBlue border border-lightBlue/30">TV SHOW</span>';
+
+                tr.innerHTML = `
+                    <td class="p-4">${typeBadge}</td>
+                    <td class="p-4 font-bold text-white max-w-xs truncate" title="${item.title}">${item.title}</td>
+                    <td class="p-4 text-gray-300 max-w-[120px] truncate" title="${item.director}">${item.director}</td>
+                    <td class="p-4 text-gray-300 max-w-[120px] truncate" title="${item.country}">${item.country}</td>
+                    <td class="p-4 font-mono text-xs text-lightBlue">${item.release_year}</td>
+                    <td class="p-4"><span class="px-1.5 py-0.5 rounded bg-cyberGray text-gray-300 text-xs font-semibold">${item.rating}</span></td>
+                    <td class="p-4 font-mono text-xs text-gray-400">${item.duration}</td>
+                    <td class="p-4 text-center">
+                        <button onclick="showTitleDetails('${item.show_id}')" class="p-1 px-3.5 rounded bg-cyberGray hover:bg-neonGreen hover:text-black border border-lightBlue/10 hover:border-transparent text-xs font-bold transition-all">
+                            Inspect
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+
+            // Update footer metrics
+            document.getElementById('tableProgressText').innerText = `Showing ${(startIndex + 1).toLocaleString()} to ${endIndex.toLocaleString()} of ${filteredTitles.length.toLocaleString()} matching entries`;
+            
+            const totalPages = Math.max(1, Math.ceil(filteredTitles.length / pageSize));
+            document.getElementById('pageIndicator').innerText = `Page ${currentPage} of ${totalPages}`;
+
+            lucide.createIcons();
+        }
+
+        // Change table pagination pages
+        function changePage(direction) {
+            const totalPages = Math.ceil(filteredTitles.length / pageSize);
+            const newPage = currentPage + direction;
+            if (newPage >= 1 && newPage <= totalPages) {
+                currentPage = newPage;
+                renderTable();
+            }
+        }
+
+        function gotoPage(val) {
+            const totalPages = Math.ceil(filteredTitles.length / pageSize);
+            if (val === 1) {
+                currentPage = 1;
+            } else if (val === -1) {
+                currentPage = totalPages;
+            }
+            renderTable();
+        }
+
+        // Change rows/pageSize
+        function changePageSize() {
+            pageSize = parseInt(document.getElementById('pageSizeSelect').value);
+            currentPage = 1;
+            renderTable();
+        }
+
+        // Show detailed specifications modal
+        function showTitleDetails(show_id) {
+            const item = allTitles.find(t => t.show_id === show_id);
+            if(!item) return;
+
+            document.getElementById('modalType').innerText = item.type;
+            
+            // Adjust modal badge style according to type
+            const typeBadge = document.getElementById('modalType');
+            if (item.type === 'Movie') {
+                typeBadge.className = "text-xs font-bold uppercase tracking-wider bg-neonGreen/10 text-neonGreen border border-neonGreen/30 px-2.5 py-0.5 rounded";
+            } else {
+                typeBadge.className = "text-xs font-bold uppercase tracking-wider bg-lightBlue/10 text-lightBlue border border-lightBlue/30 px-2.5 py-0.5 rounded";
+            }
+
+            document.getElementById('modalTitle').innerText = item.title;
+            document.getElementById('modalYear').innerText = item.release_year;
+            document.getElementById('modalRating').innerText = item.rating;
+            document.getElementById('modalDuration').innerText = item.duration;
+            document.getElementById('modalCategories').innerText = item.listed_in;
+            document.getElementById('modalDesc').innerText = item.description;
+            document.getElementById('modalDirector').innerText = item.director;
+            document.getElementById('modalCountry').innerText = item.country;
+            document.getElementById('modalCast').innerText = item.cast;
+            
+            if(item.date_added) {
+                document.getElementById('modalDateAddedRow').classList.remove('hidden');
+                document.getElementById('modalDateAdded').innerText = item.date_added;
+            } else {
+                document.getElementById('modalDateAddedRow').classList.add('hidden');
+            }
+
+            toggleModal('contentModal');
+        }
+
+        // Modal Utility togglers
+        function toggleModal(id) {
+            const modal = document.getElementById(id);
+            if(modal.classList.contains('hidden')) {
+                modal.classList.remove('hidden');
+            } else {
+                modal.classList.add('hidden');
+            }
+        }
+
+
+        // CUSTOM RECOMMENDATION ENGINE
+        function setRecType(type) {
+            recType = type;
+            const btnMovie = document.getElementById('recBtnMovie');
+            const btnTV = document.getElementById('recBtnTV');
+            
+            if (type === 'Movie') {
+                btnMovie.className = "px-3 py-1.5 rounded text-xs font-bold transition-all text-neonGreen bg-neonGreen/10 border border-neonGreen/20";
+                btnTV.className = "px-3 py-1.5 rounded text-xs font-bold text-gray-400 hover:text-white transition-all";
+            } else {
+                btnTV.className = "px-3 py-1.5 rounded text-xs font-bold transition-all text-neonGreen bg-neonGreen/10 border border-neonGreen/20";
+                btnMovie.className = "px-3 py-1.5 rounded text-xs font-bold text-gray-400 hover:text-white transition-all";
+            }
+        }
+
+        function generateRecommendation() {
+            const genre = document.getElementById('recGenreSelect').value;
+            const era = document.getElementById('recYearSelect').value;
+            const ratingOpt = document.getElementById('recRatingSelect').value;
+
+            // Gather candidate slice
+            let candidates = allTitles.filter(t => t.type === recType);
+
+            // Genre match
+            if (genre !== 'all') {
+                candidates = candidates.filter(t => t.listed_in.includes(genre));
+            }
+
+            // Era match
+            if (era === '2015') {
+                candidates = candidates.filter(t => t.release_year >= 2015);
+            } else if (era === '2000') {
+                candidates = candidates.filter(t => t.release_year >= 2000 && t.release_year < 2015);
+            } else if (era === '1900') {
+                candidates = candidates.filter(t => t.release_year < 2000);
+            }
+
+            // Maturity match
+            if (ratingOpt !== 'all') {
+                if (ratingOpt === 'TV-MA') {
+                    candidates = candidates.filter(t => ['TV-MA', 'R', 'NC-17'].includes(t.rating.toUpperCase()));
+                } else if (ratingOpt === 'PG-13') {
+                    candidates = candidates.filter(t => ['PG-13', 'TV-14', 'TV-PG'].includes(t.rating.toUpperCase()));
+                } else if (ratingOpt === 'G') {
+                    candidates = candidates.filter(t => ['G', 'PG', 'TV-G', 'TV-Y', 'TV-Y7'].includes(t.rating.toUpperCase()));
+                }
+            }
+
+            const outputDiv = document.getElementById('recOutput');
+            
+            if(candidates.length === 0) {
+                // If strictly no matched filters, grab any random title of correct Type
+                candidates = allTitles.filter(t => t.type === recType);
+            }
+
+            // Draw random record
+            const winner = candidates[Math.floor(Math.random() * candidates.length)];
+            
+            if (winner) {
+                outputDiv.classList.remove('hidden');
+
+                // Update cards
+                const bType = document.getElementById('recOutputBadgeType');
+                bType.innerText = winner.type;
+                if(winner.type === 'Movie') {
+                    bType.className = "text-[10px] font-bold bg-neonGreen/10 text-neonGreen border border-neonGreen/30 px-2 py-0.5 rounded uppercase";
+                } else {
+                    bType.className = "text-[10px] font-bold bg-lightBlue/10 text-lightBlue border border-lightBlue/30 px-2 py-0.5 rounded uppercase";
+                }
+
+                document.getElementById('recOutputBadgeYear').innerText = winner.release_year;
+                document.getElementById('recOutputBadgeRating').innerText = winner.rating || 'NR';
+                document.getElementById('recOutputBadgeDuration').innerText = winner.duration;
+                document.getElementById('recOutputTitle').innerText = winner.title;
+                document.getElementById('recOutputDesc').innerText = `"${winner.description}"`;
+                document.getElementById('recOutputDirector').innerText = winner.director || 'N/A';
+                document.getElementById('recOutputCast').innerText = winner.cast || 'N/A';
+                document.getElementById('recOutputCategory').innerText = winner.listed_in;
+
+                // Scroll recommendation output smoothly into view
+                setTimeout(() => {
+                    outputDiv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }, 100);
+            }
+        }
+
+
+        // Fallback mockup generator block to guarantee compilation
+        function getFallbackSampleCSV() {
+            return `show_id,type,title,director,cast,country,date_added,release_year,rating,duration,listed_in,description
+s1,Movie,Get Out,Jordan Peele,"Daniel Kaluuya, Allison Williams",United States,"March 22, 2019",2017,R,104 min,"Horror Movies, Thrillers",A chilling story designed to unsettle and terrify.
+s2,TV Show,Black Mirror,,Anthology series,United Kingdom,"February 23, 2020",2011,TV-MA,6 Seasons,"British TV Shows, TV Sci-Fi & Fantasy",An engaging story that captivated audiences worldwide.
+s3,Movie,Finding Nemo,Andrew Stanton,"Albert Brooks, Ellen DeGeneres",United States,"August 08, 2016",2003,G,100 min,Children & Family Movies,A heartwarming story for viewers of all ages.
+s4,Movie,Knives Out,Rian Johnson,"Daniel Craig, Chris Evans, Ana de Armas",United States,"September 29, 2019",2019,PG-13,130 min,"Comedies, Thrillers",A lighthearted tale full of humor and unexpected laughs.
+s5,Movie,Pulp Fiction,Quentin Tarantino,"John Travolta, Samuel L. Jackson, Uma Thurman",United States,"July 25, 2016",1994,R,154 min,"Crime Movies, Dramas",A tense look into the criminal underworld and its consequences.
+s6,Movie,Se7en,David Fincher,"Brad Pitt, Morgan Freeman, Gwyneth Paltrow",United States,"July 25, 2016",1995,R,127 min,"Dramas, Thrillers",A gripping investigation of serial crimes themed around deadly sins.
+s7,Movie,Roma,Alfonso Cuarón,Yalitza Aparicio,Mexico,"December 14, 2018",2018,R,135 min,"Dramas, Independent Movies",A vivid and emotional portrait of domestic life in 1970s Mexico.
+s8,TV Show,Stranger Things,,Winona Ryder,United States,"July 15, 2016",2016,TV-14,4 Seasons,"TV Sci-Fi & Fantasy, TV Dramas",Strange events unfold in a small Indiana town.
+s9,Movie,The Irishman,Martin Scorsese,"Robert De Niro, Al Pacino, Joe Pesci",United States,"November 27, 2019",2019,R,209 min,"Dramas, Thrillers",An epic saga of organized crime in postwar America.
+s10,TV Show,Narcos,,Wagner Moura,Colombia,"August 28, 2015",2015,TV-MA,3 Seasons,"Crime TV Shows, TV Dramas",The rise and fall of drug cartels and kingpins.
+s11,Movie,Inception,Christopher Nolan,Leonardo DiCaprio,United States,"January 1, 2020",2010,PG-13,148 min,"Action & Adventure, Sci-Fi",A thief steals secrets through dream-sharing technology.
+s12,TV Show,The Crown,,Claire Foy,United Kingdom,"November 4, 2016",2016,TV-MA,5 Seasons,"British TV Shows, TV Dramas",The political rivalries and romance of Queen Elizabeth II's reign.
+s13,Movie,Parasite,Bong Joon Ho,Song Kang-ho,South Korea,"October 11, 2020",2019,R,132 min,"Dramas, Thrillers",A poor family schemes to become employed by a wealthy family.
+s14,TV Show,Breaking Bad,,Bryan Cranston,United States,"October 18, 2015",2008,TV-MA,5 Seasons,"Crime TV Shows, TV Dramas",A chemistry teacher turns to drug manufacturing to secure his family's future.`;
+        }
+    </script>
+</body>
+</html>
